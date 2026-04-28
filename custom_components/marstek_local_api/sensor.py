@@ -757,12 +757,7 @@ class MarstekSensor(CoordinatorEntity, SensorEntity):
         if not self.entity_description.value_fn:
             return None
 
-        # Check if category data is fresh
-        if self.entity_description.category:
-            if not self.coordinator.is_category_fresh(self.entity_description.category):
-                return None  # Stale data - return None instead of old value
-
-        return self.entity_description.value_fn(self.coordinator.data)
+        return self.entity_description.value_fn(self.coordinator.data or {})
 
     @property
     def available(self) -> bool:
@@ -811,13 +806,8 @@ class MarstekMultiDeviceSensor(CoordinatorEntity, SensorEntity):
         if not self.entity_description.value_fn:
             return None
 
-        # Check if category data is fresh
-        if self.entity_description.category:
-            if not self.device_coordinator.is_category_fresh(self.entity_description.category):
-                return None  # Stale data - return None instead of old value
-
         device_data = self.coordinator.get_device_data(self.device_mac)
-        return self.entity_description.value_fn(device_data)
+        return self.entity_description.value_fn(device_data or {})
 
     @property
     def available(self) -> bool:
@@ -867,5 +857,5 @@ class MarstekAggregateSensor(CoordinatorEntity, SensorEntity):
         if self.entity_description.available_fn:
             return self.entity_description.available_fn(self.coordinator.data)
         # Keep entity available if we have any aggregate data (prevents "unknown" on transient failures)
-        aggregates = self.coordinator.data.get("aggregates", {})
+        aggregates = (self.coordinator.data or {}).get("aggregates", {})
         return aggregates is not None and len(aggregates) > 0

@@ -18,8 +18,6 @@ from .const import (
     COMMAND_MAX_ATTEMPTS,
     COMMAND_TIMEOUT,
     DEFAULT_SCAN_INTERVAL,
-    DEVICE_MODEL_VENUS_D,
-    UPDATE_INTERVAL_FAST,
     UPDATE_INTERVAL_MEDIUM,
     UPDATE_INTERVAL_SLOW,
     METHOD_BATTERY_STATUS,
@@ -27,6 +25,11 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _is_venus_a_model(model: str | None) -> bool:
+    """Return true for Venus A model strings reported by Marstek."""
+    return bool(model and model.replace(" ", "").lower().startswith("venusa"))
 
 
 class MarstekMultiDeviceCoordinator(DataUpdateCoordinator):
@@ -460,7 +463,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
 
             def _command_delay() -> float:
                 """Back off a little between calls; go faster while probing initial contact."""
-                return 0.2 if is_first_update and not had_success else 1.0
+                return 0.2
 
             if is_first_update:
                 _LOGGER.debug("First update - fetching device info")
@@ -475,7 +478,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                 except Exception as err:
                     _LOGGER.warning("Failed to get device info on first update: %s", err)
 
-            # High priority - every update (~60s)
+            # High priority - every update
             # ES.GetStatus and Bat.GetStatus for real-time power/energy data
             try:
                 await asyncio.sleep(_command_delay())  # Delay between API calls
@@ -536,11 +539,14 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                 self.category_last_updated["battery"] = time.time()
                 had_success = True
 
-            # Medium priority - every 5th update (~300s)
-            # EM, PV, Mode - slower-changing data
+            # Medium priority - every 5th update
+            # EM and Mode are slower-changing data. Venus A PV is updated every
+            # cycle because the app reports live PV input power much faster.
             run_medium = self.update_count == 1 or self.update_count % UPDATE_INTERVAL_MEDIUM == 0
             if is_first_update and not had_success:
                 run_medium = False
+            run_pv = run_medium or _is_venus_a_model(self.device_model)
+
             if run_medium:
                 try:
                     await asyncio.sleep(_command_delay())  # Delay between API calls
@@ -552,17 +558,6 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                 except Exception as err:
                     _LOGGER.debug("Failed to get EM status: %s", err)
 
-                # Venus A also exposes PV.GetStatus, but with per-input fields.
-                try:
-                    await asyncio.sleep(_command_delay())  # Delay between API calls
-                    pv_status = await self.api.get_pv_status(**_command_kwargs())
-                    if pv_status:
-                        data["pv"] = pv_status
-                        self.category_last_updated["pv"] = time.time()
-                        had_success = True
-                except Exception as err:
-                    _LOGGER.debug("Failed to get PV status: %s", err)
-
                 try:
                     await asyncio.sleep(_command_delay())  # Delay between API calls
                     mode_status = await self.api.get_es_mode(**_command_kwargs())
@@ -573,7 +568,20 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                 except Exception as err:
                     _LOGGER.debug("Failed to get mode status: %s", err)
 
-            # Low priority - every 10th update (~600s)
+            # PV.GetStatus. Venus A exposes per-input PV values and users expect
+            # these to behave like live power data, so poll it every cycle.
+            if run_pv:
+                try:
+                    await asyncio.sleep(_command_delay())  # Delay between API calls
+                    pv_status = await self.api.get_pv_status(**_command_kwargs())
+                    if pv_status:
+                        data["pv"] = pv_status
+                        self.category_last_updated["pv"] = time.time()
+                        had_success = True
+                except Exception as err:
+                    _LOGGER.debug("Failed to get PV status: %s", err)
+
+            # Low priority - every 10th update
             # Device, WiFi, BLE - static/diagnostic data
             run_slow = self.update_count % UPDATE_INTERVAL_SLOW == 0
             if is_first_update and not had_success:
