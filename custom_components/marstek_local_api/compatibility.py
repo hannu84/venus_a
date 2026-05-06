@@ -42,6 +42,18 @@ _LOGGER = logging.getLogger(__name__)
 HW_VERSION_2: Final = "2.0"
 HW_VERSION_3: Final = "3.0"
 
+VENUS_A_ENERGY_FIELDS: Final = {
+    "total_pv_energy",
+    "total_grid_input_energy",
+    "total_grid_output_energy",
+    "total_load_energy",
+}
+
+
+def is_venus_a_model(device_model: str) -> bool:
+    """Return true for Venus A model strings reported by Marstek."""
+    return bool(device_model and device_model.replace(" ", "").lower().startswith("venusa"))
+
 
 def parse_hardware_version(device_model: str) -> str:
     """Extract hardware version from device model string.
@@ -188,6 +200,12 @@ class CompatibilityMatrix:
         """
         if value is None:
             return None
+
+        # Venus A reports ES energy totals as watt-hours. The generic HW 2.0
+        # firmware matrix below applies C/E/D scaling that makes Venus A energy
+        # values 100x too high, which Home Assistant then shows as MWh.
+        if is_venus_a_model(self.device_model) and field in VENUS_A_ENERGY_FIELDS:
+            return value
 
         # If field not in matrix, return raw value (no scaling needed)
         if field not in self.SCALING_MATRIX:

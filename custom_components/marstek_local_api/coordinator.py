@@ -505,6 +505,10 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                     es_status["total_load_energy"] = self.compatibility.scale_value(
                         es_status["total_load_energy"], "total_load_energy"
                     )
+                if "total_pv_energy" in es_status:
+                    es_status["total_pv_energy"] = self.compatibility.scale_value(
+                        es_status["total_pv_energy"], "total_pv_energy"
+                    )
 
                 data["es"] = es_status
                 self.category_last_updated["es"] = time.time()
